@@ -1,0 +1,148 @@
+---
+title: "00_preprocess_rna"
+author: "Kevin Thomas"
+date: "6/20/2023"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preprocessing cell type-specific RNA-seq data
+
+## Setup
+```{r}
+library(DESeq2)
+library(tximport)
+library(tximeta)
+library(tidyverse)
+library(openxlsx)
+library(edgeR)
+
+# Parallel backend
+BPPARAM =
+  BiocParallel::SnowParam(
+    workers       = parallel::detectCores()-2,
+    exportglobals = FALSE,
+    progressbar   = TRUE,
+    type = "SOCK"
+  )
+BiocParallel::register(BPPARAM)
+```
+
+## Transcript import
+
+After pseudoalignment with salmon, transcript counts are imported into R via `tximport`.
+```{r import}
+# Get quant files from output of files
+data_dir <- "~/workspace/datasets/rnaseq/lra-bms-advantaseq/data"
+count_files <- dir(
+  data_dir, 
+  pattern = "*.sf.gz",
+  full.names = TRUE,
+  recursive = TRUE
+)
+count_files <- count_files[-length(count_files)] ## Remove the last quant file, which contains the undetermined barcodes
+
+# Annotations for tximport
+annotations <- read_csv(
+  file = "../references/gencode_v32_virus_tx2gene_v1.2.csv"
+)
+
+# Transcript import
+tx_counts <- tximport(
+  files = count_files,
+  type = "salmon",
+  txIn = TRUE,
+  txOut = FALSE,
+  tx2gene = annotations,
+  importer = data.table::fread
+)
+```
+
+## Filtering out small rRNA reads
+```{r rRNA filter}
+# Filter out small rRNA reads (RNA5 prefix)
+filtered_counts <- purrr::map(
+  .x = c("abundance", "counts", "length"),
+  .f = \(x){
+    cleaned_counts <-
+      tx_counts[[x]] |>
+      tibble::as_tibble(rownames = "gene_symbol") |>
+      dplyr::filter(
+        stringr::str_detect(
+          string = gene_symbol,
+          pattern = "^RNA5",
+          negate = TRUE
+        )
+      )
+    
+    cleaned_counts <-
+      cleaned_counts |>
+      dplyr::mutate(across(-matches("gene_symbol"), as.numeric)) |>
+      tibble::column_to_rownames("gene_symbol") |>
+      as.matrix()
+  }) %>% 
+  set_names(c("abundance", "counts", "length"))
+filtered_counts[["countsFromAbundance"]] <- "no"
+```
+
+## Metadata import
+```{r metadata}
+advantaseq_md <- readRDS("../data/advantaseq_md.RDS")
+```
+
+## Make DGEList
+```{r preprocess}
+# Make DeSeq Dataset object
+dds_import <- DESeqDataSetFromTximport(
+  txi = filtered_counts,
+  colData = advantaseq_md,
+  design = ~ test_group
+)
+```
+Datasets must have at leaset 5 million counts for further use.
+```{r echo=FALSE}
+# Filter datasets for total counts less than 5e6 reads
+counts(dds_import) %>%
+  colSums() %>%
+  bind_cols(
+    total_counts = .,
+    data.frame(colData(dds_import))
+  ) %>%
+  ggplot(aes(x = total_counts, fill = study)) +
+  geom_histogram() +
+  geom_vline(xintercept = 5e6) +
+  facet_wrap(~study)
+```
+
+```{r}
+# Remove libraries with low counts
+low_count_idx <- counts(dds_import) %>%
+  colSums() %>%
+  (function(x) which(x < 5e6))
+dds_import <- dds_import[,-low_count_idx]
+
+# Count matrix, remove transcripts with no counts
+ct_mtx <- counts(dds_import)
+keep <- which(rowSums(counts(dds_import)) > 0)
+ct_mtx <- ct_mtx[keep,]
+
+# DGEList
+d0 <- DGEList(ct_mtx, samples = as.data.frame(colData(dds_import)))
+
+# Normalize and filter out transcripts with CPM < 1
+d0 <- calcNormFactors(d0)
+drop <- which(apply(cpm(d0), 1, max) < 1)
+d <- d0[-drop,] 
+dim(d) # number of genes left
+d <- calcNormFactors(d)
+
+# Save
+saveRDS(object = d, file = "../data/rna_dgelist.RDS")
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
