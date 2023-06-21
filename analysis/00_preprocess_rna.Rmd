@@ -2,7 +2,11 @@
 title: "00_preprocess_rna"
 author: "Kevin Thomas"
 date: "6/20/2023"
-output: html_document
+output:
+  rmarkdown::github_document:
+    html_preview: false
+    toc: true
+    toc_depth: 3
 ---
 
 ```{r setup, include=FALSE}
