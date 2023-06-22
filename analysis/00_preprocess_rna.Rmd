@@ -1,5 +1,5 @@
 ---
-title: "00_preprocess_rna"
+title: "Preprocess RNA-seq"
 author: "Kevin Thomas"
 date: "6/20/2023"
 output:
