@@ -1,0 +1,79 @@
+---
+title: "Preprocess DNA methylation"
+author: "Kevin Thomas"
+date: "6/20/2023"
+output:
+  rmarkdown::github_document:
+    html_preview: false
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Preprocessing cell type-specific DNA methylation array data
+
+## Setup
+```{r}
+BiocManager::install("minfi")
+BiocManager::install("preprocessCore", force = TRUE, configure.args = "--disable-threading")
+BiocManager::install("IlluminaHumanMethylationEPICmanifest")
+BiocManager::install("IlluminaHumanMethylationEPICanno.ilm10b4.hg19")
+library(minfi)
+library(tidyverse)
+```
+
+## Raw data import
+
+```{r import}
+# Read sample sheet
+data_dir <- "~/workspace/datasets/dna_methyl/lra_bms_dna_methyl"
+sheetEpic <- read.metharray.sheet(base=data_dir, pattern="csv$", ignore.case=T, verbose=T, recursive=T)
+# Fix file names
+sheetEpic$Basename <- paste0(data_dir, "/", sheetEpic$Array, "/", sheetEpic$Slide)
+
+# Import raw data
+rawData.idat <- read.metharray.exp(targets = sheetEpic, recursive = T, verbose = T, force = T)
+```
+
+## Quality control
+### Beta value distribution
+```{r}
+densityPlot(dat = rawData.idat)
+```
+### Average detection p value
+```{r fig.height=8}
+meanDetectionPValue <- detectionP(rawData.idat) %>% colMeans()
+enframe(meanDetectionPValue, name = "Sentrix_ID", value = "meanDetPVal") %>%
+  left_join(sheetEpic, by = c("Sentrix_ID"="Slide")) %>%
+  ggplot(aes(x = Sentrix_ID, y = meanDetPVal)) +
+  geom_col() +
+  geom_hline(yintercept = 0.05, col = "red") +
+  facet_wrap(~Plate, ncol = 1, scales = "free_x") +
+  theme_classic() +
+  theme(axis.text.x = element_text(angle = 90))
+```
+Sample with Sentrix_ID 206838570052_R02C01 should be removed.
+
+## Remove sample
+```{r remove}
+# Edit sample sheet
+sheetEpic_filt <- sheetEpic %>%
+  filter(Slide != "206838570052_R02C01")
+
+# Import filtered samples only data
+rawData.filt.idat <- read.metharray.exp(targets = sheetEpic_filt, recursive = T, verbose = T, force = T) 
+```
+## Normalization
+```{r norm}
+normalized.idat <- preprocessFunnorm(rawData.filt.idat, bgCorr=T, dyeCorr=T, verbose=T)
+
+# Save
+saveRDS(normalized.idat, file = "../data/betaMatrix.RDS")
+```
+
+```{r sessionInfo}
+sessionInfo()
+```
