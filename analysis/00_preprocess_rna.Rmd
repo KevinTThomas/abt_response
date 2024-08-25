@@ -38,6 +38,7 @@ BiocParallel::register(BPPARAM)
 ## Transcript import
 
 After pseudoalignment with salmon, transcript counts are imported into R via `tximport`.
+
 ```{r import}
 # Get quant files from output of files
 data_dir <- "~/workspace/datasets/rnaseq/lra-bms-advantaseq/data"
@@ -87,7 +88,7 @@ filtered_counts <- purrr::map(
       dplyr::mutate(across(-matches("gene_symbol"), as.numeric)) |>
       tibble::column_to_rownames("gene_symbol") |>
       as.matrix()
-  }) %>% 
+  }) |> 
   set_names(c("abundance", "counts", "length"))
 filtered_counts[["countsFromAbundance"]] <- "no"
 ```
@@ -106,6 +107,7 @@ dds_import <- DESeqDataSetFromTximport(
   design = ~ test_group
 )
 ```
+
 Datasets must have at leaset 5 million counts for further use.
 ```{r echo=FALSE}
 # Filter datasets for total counts less than 5e6 reads
@@ -118,9 +120,11 @@ counts(dds_import) %>%
   ggplot(aes(x = total_counts, fill = study)) +
   geom_histogram() +
   geom_vline(xintercept = 5e6) +
-  facet_wrap(~study)
+  facet_wrap(~study) +
+  theme_bw() +
+  labs(x = "Total counts", y = "Number of profiles")
 ```
-
+### Filter out libraries and genes with low counts
 ```{r}
 # Remove libraries with low counts
 low_count_idx <- counts(dds_import) %>%
@@ -128,9 +132,9 @@ low_count_idx <- counts(dds_import) %>%
   (function(x) which(x < 5e6))
 dds_import <- dds_import[,-low_count_idx]
 
-# Count matrix, remove transcripts with no counts
+# Count matrix, keep transcripts with at least 10 counts represented in a group of interest
 ct_mtx <- counts(dds_import)
-keep <- which(rowSums(counts(dds_import)) > 0)
+keep <- which(rowSums(counts(dds_import) >= 10) >= min(table(dds_import$test_group)))
 ct_mtx <- ct_mtx[keep,]
 
 # DGEList
@@ -140,9 +144,28 @@ d0 <- DGEList(ct_mtx, samples = as.data.frame(colData(dds_import)))
 d0 <- calcNormFactors(d0)
 drop <- which(apply(cpm(d0), 1, max) < 1)
 d <- d0[-drop,] 
-dim(d) # number of genes left
-d <- calcNormFactors(d)
+dim(d) # number of genes and samples left
+```
 
+### Identify and remove outliers
+```{r}
+d <- calcNormFactors(d)
+# Perform principal component analysis to identify outliers
+cpm(d)%>%
+  t() %>%
+  prcomp(center = TRUE, scale. = TRUE) %>%
+  .$x %>%
+  bind_cols(d$samples) %>%
+  ggplot(aes(x = PC1, y = PC2, col = SampleType)) +
+  geom_text(aes(label = SampleName)) +
+  theme_bw()
+
+# Remove outlier AD055-22
+d <- d[,!d$samples$SampleName %in% c("AD055-22")]
+d <- calcNormFactors(d)
+```
+
+```{r}
 # Save
 saveRDS(object = d, file = "../data/rna_dgelist.RDS")
 ```

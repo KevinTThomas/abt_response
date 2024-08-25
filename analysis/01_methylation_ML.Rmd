@@ -1,0 +1,70 @@
+---
+title: "Preprocess DNA methylation"
+author: "Kevin Thomas"
+date: "6/20/2023"
+output:
+  rmarkdown::github_document:
+    html_preview: false
+    toc: true
+    toc_depth: 3
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# Machine learning identifies a methylation signature
+
+## Setup
+
+```{r Setup}
+req.pkgs <- c("foreach", "doParallel", "doRNG", "glmnet", "Biobase", "caTools", "ggplot2", "rio", "data.table", "ROCR", "dplyr", "doParallel", "pROC")
+missing.pkgs <- req.pkgs[!req.pkgs %in% installed.packages()[,1]]
+BiocManager::install(missing.pkgs, update = FALSE)
+require(foreach)
+require(doParallel)
+require(doRNG)
+require(glmnet)
+require(Biobase)
+require(caTools) 
+require(ggplot2)
+require(rio)
+require(data.table)
+require(ROCR)
+require(dplyr)
+require(doParallel)
+require(pROC)
+
+source(file = "../R/f_methLab_evaluateClassifier.R")
+```
+
+## Load in methylation data
+
+```{r}
+# methyl_b <- readRDS("../data/betaMatrix.RDS")
+# methyl_md <- readRDS("../data/methyl_md.RDS")
+```
+
+## Perform first ML on ACCESS data
+
+```{r ML ACCESS}
+ml_dir <- "../ML_results/ML_ACCESS"
+if (!dir.exists(ml_dir)) {dir.create(path = ml_dir)}
+
+seed1<-1
+runIndexLabel<-paste0("dev_unsupervised_",seed1)
+identificationLabel<-"unsupervised"
+
+methLab.evaluateClassifier(
+  data = methyl_b,
+  pheno = data.frame(Sample_Group = methyl_md[,c("sample_group")]),
+  prop = 0.7,
+  ml_dir = ml_dir,
+  n_cores = floor(0.5*detectCores()),
+  nfolds = 10,
+  resultsLabel = runIndexLabel,
+  identificationLabel = identificationLabel,
+  feature = rownames(data),
+  seeds = 40
+)
+```

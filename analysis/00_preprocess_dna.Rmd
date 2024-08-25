@@ -9,27 +9,28 @@ output:
     toc_depth: 3
 ---
 
-```{r setup, include=FALSE}
+```{r, setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
 # Preprocessing cell type-specific DNA methylation array data
 
 ## Setup
-```{r}
-BiocManager::install("minfi")
-BiocManager::install("preprocessCore", force = TRUE, configure.args = "--disable-threading")
-BiocManager::install("IlluminaHumanMethylationEPICmanifest")
-BiocManager::install("IlluminaHumanMethylationEPICanno.ilm10b4.hg19")
+```{r, setupPkgs}
+BiocManager::install(
+  c("minfi", "IlluminaHumanMethylationEPICmanifest", "IlluminaHumanMethylationEPICanno.ilm10b4.hg19"),
+  update = FALSE
+)
+BiocManager::install("preprocessCore", configure.args = c(preprocessCore = "--disable-threading"), force= TRUE, update=FALSE, type = "source")
 library(minfi)
 library(tidyverse)
 ```
 
 ## Raw data import
 
-```{r import}
+```{r, import}
 # Read sample sheet
-data_dir <- "~/workspace/datasets/dna_methyl/lra_bms_dna_methyl"
+data_dir <- "~/workspace/datasets/methylation/lra-bms-methylation"
 sheetEpic <- read.metharray.sheet(base=data_dir, pattern="csv$", ignore.case=T, verbose=T, recursive=T)
 # Fix file names
 sheetEpic$Basename <- paste0(data_dir, "/", sheetEpic$Array, "/", sheetEpic$Slide)
@@ -40,12 +41,13 @@ rawData.idat <- read.metharray.exp(targets = sheetEpic, recursive = T, verbose =
 
 ## Quality control
 ### Beta value distribution
-```{r}
+```{r, betaDens}
 densityPlot(dat = rawData.idat)
 ```
-### Average detection p value
-```{r fig.height=8}
-meanDetectionPValue <- detectionP(rawData.idat) %>% colMeans()
+### Filter samples by average detection p value
+```{r, detP, fig.height=8}
+detP <- detectionP(rawData.idat)
+meanDetectionPValue <- colMeans(detP)
 enframe(meanDetectionPValue, name = "Sentrix_ID", value = "meanDetPVal") %>%
   left_join(sheetEpic, by = c("Sentrix_ID"="Slide")) %>%
   ggplot(aes(x = Sentrix_ID, y = meanDetPVal)) +
@@ -54,24 +56,98 @@ enframe(meanDetectionPValue, name = "Sentrix_ID", value = "meanDetPVal") %>%
   facet_wrap(~Plate, ncol = 1, scales = "free_x") +
   theme_classic() +
   theme(axis.text.x = element_text(angle = 90))
+rm(detP)
+gc(verbose = FALSE) # memory management
 ```
+
+
 Sample with Sentrix_ID 206838570052_R02C01 should be removed.
 
-## Remove sample
-```{r remove}
+## Remove sample and re-import data
+```{r, remove}
 # Edit sample sheet
 sheetEpic_filt <- sheetEpic %>%
   filter(Slide != "206838570052_R02C01")
 
 # Import filtered samples only data
-rawData.filt.idat <- read.metharray.exp(targets = sheetEpic_filt, recursive = T, verbose = T, force = T) 
+rawData.filt.idat <- read.metharray.exp(targets = sheetEpic_filt, recursive = T, verbose = F, force = F) 
 ```
 ## Normalization
-```{r norm}
+```{r, norm}
+normalized.idat <- preprocessFunnorm(rawData.filt.idat, bgCorr=T, dyeCorr=T, verbose=T)
+gc(verbose = FALSE) # For memory management
+```
+
+### Probe filtering
+```{r, filter}
+detP <- detectionP(rawData.filt.idat)
+detP <- detP[match(featureNames(normalized.idat), rownames(detP)),]
+keepP <- rowSums(detP < 0.05) == ncol(normalized.idat)
+normalized.idat <- normalized.idat[keepP,]
+```
+
+Removing all CpG probes with a p-value of detection less than 0.05 in all samples.
+
+### Data exploration and outlier removal
+``` {r, pca}
+# Get M values
+methyl_m <- getM(normalized.idat)
+gc(verbose = FALSE) # For memory management
+
+# Perform PCA
+pca <- prcomp(
+  x = t(methyl_m),
+  center = TRUE,
+  scale. = TRUE
+)
+
+# Identify outliers
+outliers <- pca$x[,1:2] |>
+  bind_cols(sheetEpic_filt) |>
+  group_by(group1) |>
+  filter(
+    abs(PC1 - mean(PC1)) > 3*sd(PC1),
+    abs(PC2 - mean(PC2)) > 3*sd(PC2)
+  ) |>
+  pull(Sample)
+
+# Visualize on PCA plot
+pca$x[,1:2] |>
+  bind_cols(sheetEpic_filt) |>
+  mutate(is_outlier = Sample %in% outliers) |>
+  ggplot(aes(x = PC1, y = PC2, col = is_outlier)) +
+  geom_text(aes(label = Sample)) +
+  coord_fixed() +
+  theme_bw()
+```
+Samples AD058-41 and AD046-31 should be removed as outliers as well.
+
+## Final data assembly
+``` {r, final_select}
+# Final sample selection
+sheetEpic_filt <- sheetEpic %>%
+  filter(Slide != "206838570052_R02C01", !Sample %in% outliers)
+
+# Import
+rawData.filt.idat <- read.metharray.exp(targets = sheetEpic_filt, recursive = T, verbose = T, force = T)
+
+# Normalize
 normalized.idat <- preprocessFunnorm(rawData.filt.idat, bgCorr=T, dyeCorr=T, verbose=T)
 
+# Filter genes
+normalized.idat <- normalized.idat[keepP,]
+
+# Extract beta and M-value matrices
+methyl_b <- getBeta(normalized.idat)
+methyl_m <- getM(normalized.idat)
+```
+
+## Save data
+```{r, save}
 # Save
-saveRDS(normalized.idat, file = "../data/betaMatrix.RDS")
+saveRDS(methyl_b, file = "../data/betaMatrix.RDS")
+saveRDS(methyl_m, file = "../data/mValMatrix.RDS")
+saveRDS(sheetEpic_filt, file = "../data/methylMetaData.RDS")
 ```
 
 ```{r sessionInfo}
