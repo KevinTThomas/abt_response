@@ -50,3 +50,6 @@ rsconnect/
 
 # Anything in data file, as they're too large 
 data/
+
+# Anything in ML_results file
+ML_results/

@@ -74,23 +74,25 @@ eval.model <- function(model, newData, newLabels, ml_dir, keep_all=FALSE, method
   outcomes<-data.frame(cbind(testPredictions,newLabels$Sample_Group))
   colnames(outcomes)[1]<-"predicted"
   colnames(outcomes)[2]<-"actual"
-  if(class(try({pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T)})) == "try-error") {
-    ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=F)
+  if(class(try({pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T,quiet = TRUE)})) == "try-error") {
+    ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=F, quiet=TRUE)
   }else{
-    ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T)
+    ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T,quiet=TRUE)
   }
   # ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T)
   AUCpROC<-pROC::auc(ROC2)
   
-  save(ROC2,file=paste0(ml_dir, "/resultsfsvab/pROC_ROC_",seed,".R"))
-  save(AUCpROC,file=paste0(ml_dir,"/resultsfsvab/pROC_AUC_",seed,".R"))
-  save(outcomes,file=paste0(ml_dir,"/resultsfsvab/predictedOutcomes_",seed,".R"))
+  if (!dir.exists(paste0(ml_dir, "/results"))) {dir.create(path = paste0(ml_dir, "/results"), recursive = TRUE)}
   
-  print(ROC2)
+  save(ROC2,file=paste0(ml_dir, "/results/pROC_ROC_",seed,".R"))
+  save(AUCpROC,file=paste0(ml_dir,"/results/pROC_AUC_",seed,".R"))
+  save(outcomes,file=paste0(ml_dir,"/results/predictedOutcomes_",seed,".R"))
+  
+  # print(ROC2)
   
   # Save out the glmnet model for future analysis
   
-  save(model,file=paste0(ml_dir,"/resultsfsvab/CVglmfit_",seed,".R"))
+  save(model,file=paste0(ml_dir,"/results/CVglmfit_",seed,".R"))
   
   # Rerun the model selecting features incrementally
   
@@ -113,6 +115,6 @@ eval.model <- function(model, newData, newLabels, ml_dir, keep_all=FALSE, method
   
   # Return the model and performance statistics
   
-  return(list(testError = testError, confMat = confMat, features = featuresIncluded, testPred = testPredictions, testLabels = newLabels[,1],aucTest = aucTest, rocTest = rocTest))
+  return(list(testError = testError, confMat = confMat, features = featuresIncluded, testPred = testPredictions, testLabels = newLabels[,"Sample_Group"],aucTest = aucTest, rocTest = rocTest))
   
 }

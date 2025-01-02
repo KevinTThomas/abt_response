@@ -1,41 +1,223 @@
----
-title: "Machine Learning on Methylation"
-author: "Kevin Thomas"
-date: "12/27/2024"
-output:
-  rmarkdown::github_document:
-    html_preview: false
-    toc: true
-    toc_depth: 3
----
+Machine Learning on Methylation
+================
+Kevin Thomas
+12/27/2024
 
-```{r setup, include=FALSE}
-knitr::opts_chunk$set(echo = TRUE)
-```
+- [Machine learning identifies a methylation
+  signature](#machine-learning-identifies-a-methylation-signature)
+  - [Setup](#setup)
+  - [Load in methylation data](#load-in-methylation-data)
+  - [Perform first round of ML on ACCESS
+    data](#perform-first-round-of-ml-on-access-data)
+    - [Find top features used](#find-top-features-used)
+    - [Training and Testing
+      Performance](#training-and-testing-performance)
+    - [Feature usage](#feature-usage)
+    - [Top Features Used](#top-features-used)
+  - [Parsimonious model on ACCESS using top 17
+    features](#parsimonious-model-on-access-using-top-17-features)
+    - [Training and Testing
+      Performance](#training-and-testing-performance-1)
+  - [Parsimonious model performance on
+    ABC](#parsimonious-model-performance-on-abc)
+    - [Performance](#performance)
+  - [Top CpG Methylation Across ACCESS and
+    ABC](#top-cpg-methylation-across-access-and-abc)
+    - [ACCESS](#access)
+    - [ABC](#abc)
+  - [Apply machine learning to a combined
+    cohort](#apply-machine-learning-to-a-combined-cohort)
+    - [Find top features used](#find-top-features-used-1)
+    - [Calculate error data](#calculate-error-data-1)
+    - [Training and Testing
+      Performance](#training-and-testing-performance-2)
+    - [Feature usage](#feature-usage-1)
+    - [Top Features Used](#top-features-used-1)
+    - [Eliminate top 4 CpGs and re-do
+      model](#eliminate-top-4-cpgs-and-re-do-model)
+    - [Model performance on individual cell
+      types](#model-performance-on-individual-cell-types)
+    - [Calculate error data](#calculate-error-data-4)
+    - [Training and Testing
+      Performance](#training-and-testing-performance-5)
+    - [Parsimonious model trained on T cells tested on B cell and
+      Monocyte
+      profiles](#parsimonious-model-trained-on-t-cells-tested-on-b-cell-and-monocyte-profiles)
+    - [Parsimonious models trained on all T cells tested on ACCESS and
+      ABC T cells
+      independently](#parsimonious-models-trained-on-all-t-cells-tested-on-access-and-abc-t-cells-independently)
+    - [Parsimonious model trained on ABC T cells and tested on ACCESS T
+      cells](#parsimonious-model-trained-on-abc-t-cells-and-tested-on-access-t-cells)
+    - [Parsimonious model trained on ACCESS T cells and tested on ABC T
+      cells](#parsimonious-model-trained-on-access-t-cells-and-tested-on-abc-t-cells)
 
 # Machine learning identifies a methylation signature
 
 ## Setup
 
-```{r Setup}
+``` r
 req.pkgs <- c("foreach", "doParallel", "doRNG", "glmnet", "Biobase", "caTools", "ggplot2", "rio", "data.table", "ROCR", "dplyr", "doParallel", "pROC", "svglite", "cowplot", "openxlsx")
 missing.pkgs <- req.pkgs[!req.pkgs %in% installed.packages()[,1]]
 BiocManager::install(missing.pkgs, update = FALSE)
+```
+
+    ## 'getOption("repos")' replaces Bioconductor standard repositories, see
+    ## 'help("repositories", package = "BiocManager")' for details.
+    ## Replacement repositories:
+    ##     CRAN: https://p3m.dev/cran/__linux__/jammy/latest
+
+    ## Bioconductor version 3.19 (BiocManager 1.30.23), R 4.4.1 (2024-06-14)
+
+``` r
 require(foreach)
+```
+
+    ## Loading required package: foreach
+
+``` r
 require(doParallel)
+```
+
+    ## Loading required package: doParallel
+
+    ## Loading required package: iterators
+
+    ## Loading required package: parallel
+
+``` r
 require(doRNG)
+```
+
+    ## Loading required package: doRNG
+
+    ## Loading required package: rngtools
+
+``` r
 require(glmnet)
+```
+
+    ## Loading required package: glmnet
+
+    ## Loading required package: Matrix
+
+    ## Loaded glmnet 4.1-8
+
+``` r
 require(Biobase)
+```
+
+    ## Loading required package: Biobase
+
+    ## Loading required package: BiocGenerics
+
+    ## 
+    ## Attaching package: 'BiocGenerics'
+
+    ## The following objects are masked from 'package:stats':
+    ## 
+    ##     IQR, mad, sd, var, xtabs
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     anyDuplicated, aperm, append, as.data.frame, basename, cbind,
+    ##     colnames, dirname, do.call, duplicated, eval, evalq, Filter, Find,
+    ##     get, grep, grepl, intersect, is.unsorted, lapply, Map, mapply,
+    ##     match, mget, order, paste, pmax, pmax.int, pmin, pmin.int,
+    ##     Position, rank, rbind, Reduce, rownames, sapply, setdiff, table,
+    ##     tapply, union, unique, unsplit, which.max, which.min
+
+    ## Welcome to Bioconductor
+    ## 
+    ##     Vignettes contain introductory material; view with
+    ##     'browseVignettes()'. To cite Bioconductor, see
+    ##     'citation("Biobase")', and for packages 'citation("pkgname")'.
+
+``` r
 require(caTools) 
+```
+
+    ## Loading required package: caTools
+
+``` r
 require(ggplot2)
+```
+
+    ## Loading required package: ggplot2
+
+``` r
 require(rio)
+```
+
+    ## Loading required package: rio
+
+``` r
 require(data.table)
+```
+
+    ## Loading required package: data.table
+
+``` r
 require(ROCR)
+```
+
+    ## Loading required package: ROCR
+
+``` r
 require(dplyr)
+```
+
+    ## Loading required package: dplyr
+
+    ## 
+    ## Attaching package: 'dplyr'
+
+    ## The following objects are masked from 'package:data.table':
+    ## 
+    ##     between, first, last
+
+    ## The following object is masked from 'package:Biobase':
+    ## 
+    ##     combine
+
+    ## The following objects are masked from 'package:BiocGenerics':
+    ## 
+    ##     combine, intersect, setdiff, union
+
+    ## The following objects are masked from 'package:stats':
+    ## 
+    ##     filter, lag
+
+    ## The following objects are masked from 'package:base':
+    ## 
+    ##     intersect, setdiff, setequal, union
+
+``` r
 require(doParallel)
 require(pROC)
-require(svglite)
+```
 
+    ## Loading required package: pROC
+
+    ## Type 'citation("pROC")' for a citation.
+
+    ## 
+    ## Attaching package: 'pROC'
+
+    ## The following object is masked from 'package:BiocGenerics':
+    ## 
+    ##     var
+
+    ## The following objects are masked from 'package:stats':
+    ## 
+    ##     cov, smooth, var
+
+``` r
+require(svglite)
+```
+
+    ## Loading required package: svglite
+
+``` r
 source(file = "../R/f_methLab_evaluateClassifier.R")
 source(file = "../R/mem_profile_fxn.R")
 source(file = "../R/f_plot_AUCs.R")
@@ -44,14 +226,14 @@ source(file = "../R/f_eval_model.R")
 
 ## Load in methylation data
 
-```{r}
+``` r
 methyl_b <- readRDS("../data/betaMatrix.RDS")
 methyl_md <- readRDS("../data/methylMetaData.RDS")
 ```
 
 ## Perform first round of ML on ACCESS data
 
-```{r}
+``` r
 ml_dir <- "../ML_results/ML_ACCESS"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 #Labels
@@ -70,6 +252,13 @@ runData <- runData[,runPheno$Sentrix_ID]
 set.seed(12345)
 
 gc(verbose = FALSE) # Memory management
+```
+
+    ##             used   (Mb) gc trigger   (Mb)  max used   (Mb)
+    ## Ncells   3011430  160.9    5627245  300.6   3451829  184.4
+    ## Vcells 242016395 1846.5  406891184 3104.4 338170270 2580.1
+
+``` r
 #Run classifier
 methLab.evaluateClassifier(
   data = runData,
@@ -87,9 +276,11 @@ methLab.evaluateClassifier(
 )
 ```
 
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 ### Find top features used
 
-```{r}
+``` r
 # Evaluate top features for each model
 features<- data.frame(feature = rownames(runData), counts = 0)
 for (seed in 1:40){
@@ -106,7 +297,7 @@ export(topFeatures,file=paste0(ml_dir, "/topFeatures.csv"))
 
 #### Calculate error data
 
-```{r Concatenate error data}
+``` r
 # Concatenate ROC data
 ROCdata <-data.frame()
 for (seed in 1:40){
@@ -130,9 +321,12 @@ export(ROCdata, file = paste0(ml_dir, "/ROCdata.csv"))
 summary(ROCdata$testError)
 ```
 
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ## 0.00000 0.02857 0.05714 0.06143 0.08571 0.17143
+
 ### Training and Testing Performance
 
-```{r}
+``` r
 gg_Train <- plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = runIndexLabel,
@@ -155,9 +349,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-4-1.png)<!-- -->
+
 ### Feature usage
 
-```{r}
+``` r
 # Plot feature usage
 num_features = c()
 for (i in 1:40) {
@@ -172,9 +368,11 @@ tibble::enframe(num_features, "seed", "num_features") %>%
   theme_bw()
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-5-1.png)<!-- -->
+
 ### Top Features Used
 
-```{r}
+``` r
 # Plot feature usage
 read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   head(20) %>%
@@ -185,6 +383,11 @@ read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   labs(x = "CpG probe", y = "Fraction of models used (%)") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-6-1.png)<!-- -->
+
+``` r
 top_cpg = read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   head(20) %>%
   mutate(feature = factor(feature, levels = feature), pct_used = 100*counts/40) %>%
@@ -195,7 +398,7 @@ top_cpg = read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
 
 ## Parsimonious model on ACCESS using top 17 features
 
-```{r}
+``` r
 ml_dir <- "../ML_results/ML_ACCESS_top17"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 #Labels
@@ -229,9 +432,11 @@ methLab.evaluateClassifier(
 )
 ```
 
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 ### Training and Testing Performance
 
-```{r}
+``` r
 gg_Train <- plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = runIndexLabel,
@@ -254,9 +459,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-8-1.png)<!-- -->
+
 ## Parsimonious model performance on ABC
 
-```{r}
+``` r
 ml_dir <- "../ML_results/ML_ACCESS_top17_on_ABC"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 ml_fit_dir <- "../ML_results/ML_ACCESS_top17"
@@ -284,7 +491,7 @@ for (seed in 1:40) {
 
 ### Performance
 
-```{r}
+``` r
 plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = NULL,
@@ -295,11 +502,13 @@ plot_auc_curves(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-10-1.png)<!-- -->
+
 ## Top CpG Methylation Across ACCESS and ABC
 
 ### ACCESS
 
-```{r,fig.height=10, fig.width=6}
+``` r
 metaData <- left_join(
   methyl_md,
   openxlsx::read.xlsx("../data/dna_metadata.xlsx"),
@@ -328,9 +537,11 @@ metaData %>%
   theme_bw()
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-11-1.png)<!-- -->
+
 ### ABC
 
-```{r,fig.height=10, fig.width=6}
+``` r
 metaData %>%
   cbind(t(methyl_b[top_cpg, ])) %>%
   dplyr::filter(Study == "ABC") %>%
@@ -350,9 +561,11 @@ metaData %>%
   theme_bw()
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-12-1.png)<!-- -->
+
 ## Apply machine learning to a combined cohort
 
-```{r}
+``` r
 ml_dir <- "../ML_results/ML_combined"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 #Labels
@@ -386,9 +599,11 @@ methLab.evaluateClassifier(
 )
 ```
 
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 ### Find top features used
 
-```{r}
+``` r
 # Evaluate top features for each model
 features<- data.frame(feature = rownames(runData), counts = 0)
 for (seed in 1:40){
@@ -405,7 +620,7 @@ export(topFeatures,file=paste0(ml_dir, "/topFeatures.csv"))
 
 ### Calculate error data
 
-```{r}
+``` r
 # Concatenate ROC data
 ROCdata <-data.frame()
 for (seed in 1:40){
@@ -429,9 +644,12 @@ export(ROCdata, file = paste0(ml_dir, "/ROCdata.csv"))
 summary(ROCdata$testError)
 ```
 
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ## 0.00000 0.01961 0.05882 0.06961 0.09804 0.23529
+
 ### Training and Testing Performance
 
-```{r}
+``` r
 gg_Train <- plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = runIndexLabel,
@@ -454,9 +672,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-16-1.png)<!-- -->
+
 ### Feature usage
 
-```{r}
+``` r
 # Plot feature usage
 num_features = c()
 for (i in 1:40) {
@@ -471,9 +691,11 @@ tibble::enframe(num_features, "seed", "num_features") %>%
   theme_bw()
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-17-1.png)<!-- -->
+
 ### Top Features Used
 
-```{r}
+``` r
 # Plot top features
 read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   head(20) %>%
@@ -484,6 +706,11 @@ read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   labs(x = "CpG probe", y = "Fraction of models used (%)") +
   theme_bw() +
   theme(axis.text.x = element_text(angle = 45, hjust = 1, vjust = 1))
+```
+
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-18-1.png)<!-- -->
+
+``` r
 top_cpg = read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
   head(20) %>%
   mutate(feature = factor(feature, levels = feature), pct_used = 100*counts/40) %>%
@@ -494,7 +721,7 @@ top_cpg = read.csv(paste0(ml_dir, "/topFeatures.csv")) %>%
 
 ### Eliminate top 4 CpGs and re-do model
 
-```{r}
+``` r
 ml_dir <- "../ML_results/ML_combined_noTop4"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 #Labels
@@ -528,9 +755,11 @@ methLab.evaluateClassifier(
 )
 ```
 
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 #### Calculate error data
 
-```{r}
+``` r
 # Concatenate ROC data
 ROCdata <-data.frame()
 for (seed in 1:40){
@@ -554,9 +783,12 @@ export(ROCdata, file = paste0(ml_dir, "/ROCdata.csv"))
 summary(ROCdata$testError)
 ```
 
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ## 0.00000 0.05392 0.05882 0.08186 0.11765 0.17647
+
 #### Training and Testing Performance
 
-```{r}
+``` r
 gg_Train <- plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = runIndexLabel,
@@ -579,9 +811,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-21-1.png)<!-- -->
+
 #### Feature usage
 
-```{r}
+``` r
 # Plot feature usage
 num_features = c()
 for (i in 1:40) {
@@ -596,9 +830,11 @@ tibble::enframe(num_features, "seed", "num_features") %>%
   theme_bw()
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-22-1.png)<!-- -->
+
 ### Model performance on individual cell types
 
-```{r}
+``` r
 cell_type = unique(methyl_md$group1)[c(3,1,2)]
 
 # Iterate learning over each cell type
@@ -640,9 +876,21 @@ for (ct in cell_type) {
 }
 ```
 
+    ## Learning for group: T_cell
+
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
+    ## Learning for group: B_cell
+
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
+    ## Learning for group: Monocyte
+
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 #### Find top features used
 
-```{r}
+``` r
 for (ct in cell_type) {
   message("Finding top CpGs for group: ", ct)
   ml_dir <- paste0("../ML_results/ML_combined_", ct)
@@ -670,9 +918,15 @@ for (ct in cell_type) {
 }
 ```
 
+    ## Finding top CpGs for group: T_cell
+
+    ## Finding top CpGs for group: B_cell
+
+    ## Finding top CpGs for group: Monocyte
+
 #### Calculate error data
 
-```{r}
+``` r
 for (ct in cell_type) {
   print (paste0("Error summary for: ", ct))
   ml_dir <- ml_dir <- paste0("../ML_results/ML_combined_", ct)
@@ -701,9 +955,19 @@ for (ct in cell_type) {
 }
 ```
 
+    ## [1] "Error summary for: T_cell"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.2941  0.4118  0.4706  0.4456  0.4706  0.5882 
+    ## [1] "Error summary for: B_cell"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.2353  0.4118  0.5294  0.4912  0.5294  0.8235 
+    ## [1] "Error summary for: Monocyte"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.3529  0.4706  0.4706  0.4809  0.4706  0.7059
+
 #### Training and Testing Performance
 
-```{r,fig.height=10, fig.width=6}
+``` r
 gg_list = vector("list", length = length(cell_type))
 names(gg_list) <- cell_type
 for (ct in cell_type) {
@@ -735,9 +999,11 @@ for (ct in cell_type) {
 cowplot::plot_grid(plotlist = gg_list, nrow = length(gg_list))
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-26-1.png)<!-- -->
+
 #### Top Features Used
 
-```{r,fig.height=10, fig.width=6}
+``` r
 gg_list = vector("list", length = length(cell_type))
 names(gg_list) <- cell_type
 for (ct in cell_type) {
@@ -762,8 +1028,24 @@ cowplot::plot_grid(
   labels = cell_type
 )
 ```
-## Using top 4 features on T cell profiles
-```{r}
+
+    ## Warning: No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+    ## No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+    ## No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+    ## No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+    ## No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+    ## No shared levels found between `names(values)` of the manual scale and the
+    ## data's fill values.
+
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-27-1.png)<!-- -->
+\## Using top 4 features on T cell profiles
+
+``` r
 ml_dir <- "../ML_results/ML_combined_T_cell_top4"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 #Labels
@@ -797,9 +1079,11 @@ methLab.evaluateClassifier(
 )
 ```
 
+    ## Directory contains a populated 'results' folder. To force a recalculation, set `force` to `TRUE`.
+
 ### Calculate error data
 
-```{r}
+``` r
 # Concatenate ROC data
 ROCdata <-data.frame()
 for (seed in 1:40){
@@ -823,9 +1107,12 @@ export(ROCdata, file = paste0(ml_dir, "/ROCdata.csv"))
 summary(ROCdata$testError)
 ```
 
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ## 0.05882 0.17647 0.23529 0.21176 0.23529 0.41176
+
 ### Training and Testing Performance
 
-```{r}
+``` r
 gg_Train <- plot_auc_curves(
   ml_dir = ml_dir,
   runIndexLabel = runIndexLabel,
@@ -848,8 +1135,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-30-1.png)<!-- -->
+
 ### Parsimonious model trained on T cells tested on B cell and Monocyte profiles
-```{r}
+
+``` r
 ml_dir <- "../ML_results/ML_combined_T_cell_top4_on_B_cell"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
 ml_fit_dir <- "../ML_results/ML_combined_T_cell_top4"
@@ -901,7 +1191,7 @@ for (seed in 1:40) {
 
 #### Performance
 
-```{r}
+``` r
 gg_list = vector("list", length = 2)
 names(gg_list) <- c("B_cell", "Monocyte")
 for (ct in names(gg_list)) {
@@ -923,8 +1213,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-32-1.png)<!-- -->
+
 #### Calculate error data
-```{r}
+
+``` r
 for (ct in c("B_cell", "Monocyte")) {
   print (paste0("Error summary for: ", ct))
   ml_dir <- paste0("../ML_results/ML_combined_T_cell_top4_on_", ct)
@@ -950,9 +1243,17 @@ for (ct in c("B_cell", "Monocyte")) {
   print(summary(ROCdata$testError))
 }
 ```
+
+    ## [1] "Error summary for: B_cell"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.1053  0.1228  0.1404  0.1373  0.1404  0.1754 
+    ## [1] "Error summary for: Monocyte"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.1404  0.1711  0.1930  0.2096  0.2456  0.2982
+
 #### Confusion matrices
 
-```{r}
+``` r
 for (ct in c("B_cell", "Monocyte")) {
   print (paste0("Confusion matrix summary for: ", ct))
   ml_dir <- paste0("../ML_results/ML_combined_T_cell_top4_on_", ct)
@@ -974,8 +1275,20 @@ for (ct in c("B_cell", "Monocyte")) {
 }
 ```
 
+    ## [1] "Confusion matrix summary for: B_cell"
+    ##                Status
+    ## Prediction      Responder            Non-responder       
+    ##   Responder     "0.464 (sd=0.0198)"  "0.0921 (sd=0.0247)"
+    ##   Non-responder "0.0452 (sd=0.0198)" "0.399 (sd=0.0247)" 
+    ## [1] "Confusion matrix summary for: Monocyte"
+    ##                Status
+    ## Prediction      Responder            Non-responder      
+    ##   Responder     "0.458 (sd=0.0183)"  "0.194 (sd=0.0569)"
+    ##   Non-responder "0.0154 (sd=0.0183)" "0.332 (sd=0.0569)"
+
 ### Parsimonious models trained on all T cells tested on ACCESS and ABC T cells independently
-```{r}
+
+``` r
 ## Test on ACCESS T Cells
 ml_dir <- "../ML_results/ML_combined_T_cell_top4_on_ACCESS_T_cell"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
@@ -1029,8 +1342,46 @@ for (seed in 1:40) {
 }
 ```
 
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in if (is.unsorted(roc$specificities)) { : 
+    ##   missing value where TRUE/FALSE needed
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+    ## Error in smooth_roc_binormal(roc, n) : 
+    ##   ROC curve not smoothable (not enough points).
+
 #### Performance
-```{r}
+
+``` r
 gg_list = vector("list", length = 2)
 names(gg_list) <- c("ACCESS_T_cell", "ABC_T_cell")
 for (ct in names(gg_list)) {
@@ -1052,8 +1403,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-36-1.png)<!-- -->
+
 #### Calculate error data
-```{r}
+
+``` r
 for (ct in c("ACCESS_T_cell", "ABC_T_cell")) {
   print (paste0("Error summary for: ", ct))
   ml_dir <- paste0("../ML_results/ML_combined_T_cell_top4_on_", ct)
@@ -1080,8 +1434,16 @@ for (ct in c("ACCESS_T_cell", "ABC_T_cell")) {
 }
 ```
 
+    ## [1] "Error summary for: ACCESS_T_cell"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ##  0.1282  0.1538  0.1538  0.1564  0.1795  0.1795 
+    ## [1] "Error summary for: ABC_T_cell"
+    ##    Min. 1st Qu.  Median    Mean 3rd Qu.    Max. 
+    ## 0.05263 0.10526 0.15789 0.15000 0.15789 0.26316
+
 ### Parsimonious model trained on ABC T cells and tested on ACCESS T cells
-```{r}
+
+``` r
 source(file = "../R/f_classify_feature.R")
 
 ## Train on ABC T cells, test on ACCESS T cells
@@ -1127,11 +1489,61 @@ devResults <- classify.feature(
   feature=top_cpg,
   seed=1
 )
+```
+
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+    ## Warning in lognet(xd, is.sparse, ix, jx, y, weights, offset, alpha, nobs, : one
+    ## multinomial or binomial class has fewer than 8 observations; dangerous ground
+
+    ## Warning: Too few (< 10) observations per fold for type.measure='auc' in
+    ## cv.lognet; changed to type.measure='deviance'. Alternatively, use smaller value
+    ## for nfolds
+
+    ## Warning: Option grouped=FALSE enforced in cv.glmnet, since < 3 observations per
+    ## fold
+
+    ## Setting levels: control = case, case = control
+
+    ## Setting direction: controls < cases
+
+    ## Setting levels: control = case, case = control
+
+    ## Setting direction: controls < cases
+
+    ## 
+    ## Call:
+    ## roc.default(response = outcomes$actual, predictor = as.numeric(outcomes$predicted),     smooth = T)
+    ## 
+    ## Data: as.numeric(outcomes$predicted) in 21 controls (outcomes$actual case) < 18 cases (outcomes$actual control).
+    ## Smoothing: binormal 
+    ## Area under the curve: 0.7699
+
+``` r
 save(devResults, file = paste0(ml_dir, "/results/TrueLabels_results_1.R"))
 ```
 
 #### Performance
-```{r}
+
+``` r
 plot_data <- roc(factor(devResults$trainLabels, levels = c("control", "case")), devResults$trainPred[,1], quiet=TRUE) %>%
   (function(x) cbind(coords(x), aucROC = as.numeric(x$auc)))
 gg_Train <- ggplot(data = plot_data, aes(x = 1-specificity, y = sensitivity)) +
@@ -1160,8 +1572,11 @@ cowplot::plot_grid(
 )
 ```
 
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-39-1.png)<!-- -->
+
 ### Parsimonious model trained on ACCESS T cells and tested on ABC T cells
-```{r}
+
+``` r
 ## Train on ACCESS T cells, test on ABC T cells
 ml_dir <- "../ML_results/ML_combined_T_cell_top4_trainACCESS_testABC"
 if (!dir.exists(ml_dir)) {dir.create(path = ml_dir, recursive = TRUE)}
@@ -1205,11 +1620,35 @@ devResults <- classify.feature(
   feature=top_cpg,
   seed=1
 )
+```
+
+    ## Warning: Too few (< 10) observations per fold for type.measure='auc' in
+    ## cv.lognet; changed to type.measure='deviance'. Alternatively, use smaller value
+    ## for nfolds
+
+    ## Setting levels: control = case, case = control
+
+    ## Setting direction: controls < cases
+
+    ## Setting levels: control = case, case = control
+
+    ## Setting direction: controls < cases
+
+    ## 
+    ## Call:
+    ## roc.default(response = outcomes$actual, predictor = as.numeric(outcomes$predicted),     smooth = T)
+    ## 
+    ## Data: as.numeric(outcomes$predicted) in 7 controls (outcomes$actual case) < 12 cases (outcomes$actual control).
+    ## Smoothing: binormal 
+    ## Area under the curve: 0.7899
+
+``` r
 save(devResults, file = paste0(ml_dir, "/results/TrueLabels_results_1.R"))
 ```
 
 #### Performance
-```{r}
+
+``` r
 plot_data <- roc(factor(devResults$trainLabels, levels = c("control", "case")), devResults$trainPred[,1], quiet=TRUE) %>%
   (function(x) cbind(coords(x), aucROC = as.numeric(x$auc)))
 gg_Train <- ggplot(data = plot_data, aes(x = 1-specificity, y = sensitivity)) +
@@ -1237,3 +1676,5 @@ cowplot::plot_grid(
   gg_Test
 )
 ```
+
+![](01_methylation_ML_files/figure-gfm/unnamed-chunk-41-1.png)<!-- -->

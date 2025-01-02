@@ -1,10 +1,16 @@
-classify.feature <- function(train, test, trainLabels, testLabels,ml_dir,nfolds,keep_all = FALSE,method="", feature="",seed) {
+classify.feature <- function(train, test, trainLabels, testLabels, ml_dir, nfolds, keep_all = FALSE, method="", feature="", seed) {
   
   # perform k-fold cross-validation on training data and return the model.
-  
   feature<-as.character(feature)
-  
-  cv.glmfit <- cv.glmnet(t(train[feature,]),trainLabels$Sample_Group,family="binomial",alpha=1,standardize=TRUE,type.measure='auc',nfolds=nfolds)
+  cv.glmfit <- cv.glmnet(
+    x = t(train[feature,]),
+    y = trainLabels$Sample_Group,
+    family="binomial",
+    alpha=1,
+    standardize=TRUE,
+    type.measure='auc',
+    nfolds=nfolds
+  )
   
   if (keep_all){
     # check that all features are used
@@ -84,18 +90,17 @@ classify.feature <- function(train, test, trainLabels, testLabels,ml_dir,nfolds,
   # ROC2<-pROC::roc(outcomes$actual,as.numeric(outcomes$predicted),smooth=T)
   AUCpROC<-pROC::auc(ROC2)
   
-  save(ROC2,file=paste0(ml_dir, "/resultsfsvab/pROC_ROC_",seed,".R"))
-  save(AUCpROC,file=paste0(ml_dir,"/resultsfsvab/pROC_AUC_",seed,".R"))
-  save(outcomes,file=paste0(ml_dir,"/resultsfsvab/predictedOutcomes_",seed,".R"))
+  save(ROC2,file=paste0(ml_dir, "/results/pROC_ROC_",seed,".R"))
+  save(AUCpROC,file=paste0(ml_dir,"/results/pROC_AUC_",seed,".R"))
+  save(outcomes,file=paste0(ml_dir,"/results/predictedOutcomes_",seed,".R"))
   
   print(ROC2)
   
-  # Save out the glmnet model for future analysis
+  # Save the glmnet model for future analysis
   
-  save(cv.glmfit,file=paste0(ml_dir,"/resultsfsvab/CVglmfit_",seed,".R"))
+  save(cv.glmfit,file=paste0(ml_dir,"/results/CVglmfit_",seed,".R"))
   
   # Rerun the model selecting features incrementally
-  
   coefs <- as.array(coef(cv.glmfit, s = lambda_use))
   featuresIncluded <- names(which(rowSums(coefs) != 0))[-1]
   
